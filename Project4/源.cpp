@@ -1,366 +1,83 @@
+#include <CL/sycl.hpp>
 #include <iostream>
-#include<ctime>
-#include<Windows.h>
-#include <immintrin.h>
-#include <intrin.h>
-#include<iomanip>
-using namespace std;
-double time1 = 0, time2 = 0, time3 = 0, time4 = 0;
-void test() {
-    int n = 512;//nÎªÊı¾İ¹æÄ££¬È¡64¡¢128¡¢256¡¢512¡¢1024Îå¸öÖµ
-    float** m = new float* [n];//´®ĞĞ¾ØÕó
-    float** A = new float* [n];//¶şÖØÑ­»·SSE¾ØÕó
-    float** A1 = new float* [n];//ÈıÖØÑ­»·SSE¾ØÕó
-    float** A2 = new float* [n];//SSEÓÅ»¯¾ØÕó
-    srand(time(0));
-    for (int i = 0; i < n; i++) {
-        A[i] = new float[n];
-        m[i] = new float[n];
-        A1[i] = new float[n];
-        A2[i] = new float[n];
-    }
-    for (int i = 0; i < n; i++) {
-        A[i][i] = 1.0;//¶Ô½ÇÏßÎª1.0
-        for (int j = 0; j < n; j++) {
-            A[i][j] = rand() % 10;
-        }
+#include <chrono>
 
-    }
-    for (int k = 0; k < n; k++) {
-        for (int i = k + 1; i < n; i++) {
-            for (int j = 0; j < n; j++) {
-                A[i][j] += A[k][j];
-            }
-        }
-    }
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            m[i][j] = A[i][j];//Á½¸öÍêÈ«ÏàÍ¬µÄ¾ØÕó£¬Ò»¸öÓÃÓÚ´®ĞĞËã·¨£¬Ò»¸öÓÃÓÚ¶şÖØÑ­»·µÄSSEÏòÁ¿»¯
-            A1[i][j] = A[i][j];//Á½¸öÍêÈ«ÏàÍ¬µÄ¾ØÕó£¬Ò»¸öÓÃÓÚ¶şÖØÑ­»·µÄSSEÏòÁ¿»¯£¬Ò»¸öÓÃÓÚÈıÖØÑ­»·µÄSSEÏòÁ¿»¯
-            A2[i][j] = A[i][j];//A2ÎªÍêÈ«SSEÏòÁ¿»¯
-        }
-    }
-    //²âÊÔÓÃÀıµÄÉú³É
+using namespace sycl;
 
+#define n 512
 
-    long long head1, tail1, freq1; // timers
-    // similar to CLOCKS_PER_SEC
-    QueryPerformanceFrequency((LARGE_INTEGER*)&freq1);
-    // start time
-    QueryPerformanceCounter((LARGE_INTEGER*)&head1);
-
-    for (int k = 0; k < n; k++) {
-        for (int j = k + 1; j < n; j++) {
-            m[k][j] = m[k][j] / m[k][k];
-        }
-        m[k][k] = 1.0;
-        for (int i = k + 1; i < n; i++) {
-            for (int j = k + 1; j < n; j++) {
-                m[i][j] = m[i][j] - m[k][j] * m[i][k];
-            }
-            m[i][k] = 0;
-        }
-    }
-
-    QueryPerformanceCounter((LARGE_INTEGER*)&tail1);
-    cout << "Êı¾İ¹æÄ£Îªn=" << n << endl;
-    time1 += (tail1 - head1) * 1000.0 / freq1;
-    cout << "´®ĞĞËã·¨²âÊÔÊ±¼äÎª " << (tail1 - head1) * 1000.0 / freq1 << "ms" << endl;
-
-
-    /////////////////////////////////////////////////////////////////////¶şÖØÑ­»·SSEÏòÁ¿»¯//////////////////////////////////////////////////////////////////////////////////////////
-    long long head2, tail2, freq2; // timers
-    // similar to CLOCKS_PER_SEC
-    QueryPerformanceFrequency((LARGE_INTEGER*)&freq2);
-    // start time
-    QueryPerformanceCounter((LARGE_INTEGER*)&head2);
-
-    for (int k = 0; k < n; k++) {
-        float vt = A1[k][k];//vt ¡û dupTo4Float(A[k,k]);
-        __m128 va;//floatĞÍ¼Ä´æÆ÷
-        for (int j = k + 1; j + 4 < n; j += 4) {
-            va = _mm_load_ps(&A1[k][j]);//va ¡û load4FloatFrom(&A[k,j]) ; 
-            va = _mm_div_ps(va, _mm_set1_ps(vt)); //va ¡û va/vt ; // ÕâÀïÊÇÏòÁ¿¶ÔÎ»Ïà³ı
-            _mm_store_ps(&A1[k][j], va);//store4FloatTo(&A[k, j], va);
-        }
-        //4Â·ÏòÁ¿»¯
-        A1[k][k] = 1.0;//A[k,k] ¡û 1.0;
-
-        for (int i = k + 1; i < n; i++) {
-            for (int j = k + 1; j < n; j++) {
-                A1[i][j] = A1[i][j] - A1[k][j] * A1[i][k];
-            }
-            A1[i][k] = 0;
-        }
-    }
-
-
-    // end time
-    QueryPerformanceCounter((LARGE_INTEGER*)&tail2);
-    cout << "SSE¶şÖØÑ­»·ÏòÁ¿»¯ÔËĞĞÊ±¼äÎª " << (tail2 - head2) * 1000.0 / freq2 << "ms" << endl;
-    time2 += (tail2 - head2) * 1000.0 / freq2;
-
-    /////////////////////////////////////////////////////////////////////ÈıÖØÑ­»·SSEÏòÁ¿»¯//////////////////////////////////////////////////////////////////////////////////////////
-
-    long long head3, tail3, freq3; // timers
-    // similar to CLOCKS_PER_SEC
-    QueryPerformanceFrequency((LARGE_INTEGER*)&freq3);
-    // start time
-    QueryPerformanceCounter((LARGE_INTEGER*)&head3);
-
-    for (int k = 0; k < n; k++) {
-        for (int j = k + 1; j < n; j++) {
-            A2[k][j] = A2[k][j] / A2[k][k];
-        }
-        A2[k][k] = 1.0;//A[k,k] ¡û 1.0;
-
-        __m128 vaik, vakj, vaij, vx;//floatĞÍ¼Ä´æÆ÷
-        for (int i = k + 1; i < n; i++) {
-            vaik = _mm_set1_ps(A2[i][k]);//vaik ¡û dupToVector4(A[i,k]);
-            for (int j = k + 1; j + 4 < n; j += 4) {
-                vakj = _mm_load_ps(&A2[k][j]);//vakj ¡û load4FloatFrom(&A[k,j]);
-                vaij = _mm_load_ps(&A2[i][j]);//vaij ¡û load4FloatFrom(&A[i,j]);
-                vx = _mm_mul_ps(vakj, vaik);//vx ¡û vakj*vaik;
-                vaij = _mm_sub_ps(vaij, vx);//vaij ¡û vaij-vx;
-                _mm_store_ps(&A2[i][j], vaij);//store4FloatTo(&A[i,j],vaij);
-            }
-            A2[i][k] = 0;//A[i,k] ¡û 0;
-        }
-    }
-
-
-    // end time
-    QueryPerformanceCounter((LARGE_INTEGER*)&tail3);
-    cout << "SSEÈıÖØÑ­»·ÏòÁ¿»¯ÔËĞĞÊ±¼äÎª " << (tail3 - head3) * 1000.0 / freq3 << "ms" << endl;
-    time3 += (tail3 - head3) * 1000.0 / freq3;
-
-    /////////////////////////////////////////////////////////////////////ÍêÈ«SEÏòÁ¿»¯//////////////////////////////////////////////////////////////////////////////////////////
-
-    long long head, tail, freq; // timers
-    // similar to CLOCKS_PER_SEC
-    QueryPerformanceFrequency((LARGE_INTEGER*)&freq);
-    // start time
-    QueryPerformanceCounter((LARGE_INTEGER*)&head);
-
-    for (int k = 0; k < n; k++) {
-        float vt = A[k][k];//vt ¡û dupTo4Float(A[k,k]);
-        __m128 va;//floatĞÍ¼Ä´æÆ÷
-        for (int j = k + 1; j + 4 < n; j += 4) {
-            va = _mm_load_ps(&A[k][j]);//va ¡û load4FloatFrom(&A[k,j]) ; 
-            va = _mm_div_ps(va, _mm_set1_ps(vt)); //va ¡û va/vt ; // ÕâÀïÊÇÏòÁ¿¶ÔÎ»Ïà³ı
-            _mm_store_ps(&A[k][j], va);//store4FloatTo(&A[k, j], va);
-        }
-        //4Â·ÏòÁ¿»¯
-        A[k][k] = 1.0;//A[k,k] ¡û 1.0;
-
-        __m128 vaik, vakj, vaij, vx;//floatĞÍ¼Ä´æÆ÷
-        for (int i = k + 1; i < n; i++) {
-            vaik = _mm_set1_ps(A[i][k]);//vaik ¡û dupToVector4(A[i,k]);
-            for (int j = k + 1; j + 4 < n; j += 4) {
-                vakj = _mm_load_ps(&A[k][j]);//vakj ¡û load4FloatFrom(&A[k,j]);
-                vaij = _mm_load_ps(&A[i][j]);//vaij ¡û load4FloatFrom(&A[i,j]);
-                vx = _mm_mul_ps(vakj, vaik);//vx ¡û vakj*vaik;
-                vaij = _mm_sub_ps(vaij, vx);//vaij ¡û vaij-vx;
-                _mm_store_ps(&A[i][j], vaij);//store4FloatTo(&A[i,j],vaij);
-            }
-            A[i][k] = 0;//A[i,k] ¡û 0;
-        }
-    }
-
-
-    // end time
-    QueryPerformanceCounter((LARGE_INTEGER*)&tail);
-    cout << "SSEÍêÈ«ÏòÁ¿»¯ÔËĞĞÊ±¼äÎª " << (tail - head) * 1000.0 / freq << "ms" << endl;
-    time4 += (tail - head) * 1000.0 / freq;
-
-    cout << endl;
-    cout << endl;
-
-}
-//ÒÔÉÏÎªSSEÏòÁ¿»¯
-void test1() {
-    int n = 512;//nÎªÊı¾İ¹æÄ££¬È¡64¡¢128¡¢256¡¢512¡¢1024Îå¸öÖµ
-    float** m = new float* [n];//´®ĞĞ¾ØÕó
-    float** A = new float* [n];//¶şÖØÑ­»·SSE¾ØÕó
-    float** A1 = new float* [n];//ÈıÖØÑ­»·SSE¾ØÕó
-    float** A2 = new float* [n];//SSEÓÅ»¯¾ØÕó
-    srand(time(0));
-    for (int i = 0; i < n; i++) {
-        A[i] = new float[n];
-        m[i] = new float[n];
-        A1[i] = new float[n];
-        A2[i] = new float[n];
-    }
-    for (int i = 0; i < n; i++) {
-        A[i][i] = 1.0;//¶Ô½ÇÏßÎª1.0
-        for (int j = 0; j < n; j++) {
-            A[i][j] = rand() % 10;
-        }
-
-    }
-    for (int k = 0; k < n; k++) {
-        for (int i = k + 1; i < n; i++) {
-            for (int j = 0; j < n; j++) {
-                A[i][j] += A[k][j];
-            }
-        }
-    }
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            m[i][j] = A[i][j];//Á½¸öÍêÈ«ÏàÍ¬µÄ¾ØÕó£¬Ò»¸öÓÃÓÚ´®ĞĞËã·¨£¬Ò»¸öÓÃÓÚ¶şÖØÑ­»·µÄAVXÏòÁ¿»¯
-            A1[i][j] = A[i][j];//Á½¸öÍêÈ«ÏàÍ¬µÄ¾ØÕó£¬Ò»¸öÓÃÓÚ¶şÖØÑ­»·µÄSSEÏòÁ¿»¯£¬Ò»¸öÓÃÓÚÈıÖØÑ­»·µÄAVXÏòÁ¿»¯
-            A2[i][j] = A[i][j];//A2ÎªÍêÈ«AVXÏòÁ¿»¯
-        }
-    }
-    //²âÊÔÓÃÀıµÄÉú³É
-
-    long long head1, tail1, freq1; // timers
-    // similar to CLOCKS_PER_SEC
-    QueryPerformanceFrequency((LARGE_INTEGER*)&freq1);
-    // start time
-    QueryPerformanceCounter((LARGE_INTEGER*)&head1);
-
-    for (int k = 0; k < n; k++) {
-        for (int j = k + 1; j < n; j++) {
-            m[k][j] = m[k][j] / m[k][k];
-        }
-        m[k][k] = 1.0;
-        for (int i = k + 1; i < n; i++) {
-            for (int j = k + 1; j < n; j++) {
-                m[i][j] = m[i][j] - m[k][j] * m[i][k];
-            }
-            m[i][k] = 0;
-        }
-    }
-
-    QueryPerformanceCounter((LARGE_INTEGER*)&tail1);
-    cout << "Êı¾İ¹æÄ£Îªn=" << n << endl;
-    time1 += (tail1 - head1) * 1000.0 / freq1;
-    cout << "´®ĞĞËã·¨²âÊÔÊ±¼äÎª " << (tail1 - head1) * 1000.0 / freq1 << "ms" << endl;
-
-
-    /////////////////////////////////////////////////////////////////////¶şÖØÑ­»·SSEÏòÁ¿»¯//////////////////////////////////////////////////////////////////////////////////////////
-
-    long long head2, tail2, freq2; // timers
-    // similar to CLOCKS_PER_SEC
-    QueryPerformanceFrequency((LARGE_INTEGER*)&freq2);
-    // start time
-    QueryPerformanceCounter((LARGE_INTEGER*)&head2);
-
-    for (int k = 0; k < n; k++) {
-        float vt = A1[k][k];
-        __m256 va;
-        for (int j = k + 1; j + 8 <= n; j += 8) {
-            va = _mm256_load_ps(&A1[k][j]);
-            va = _mm256_div_ps(va, _mm256_set1_ps(vt));
-            _mm256_store_ps(&A1[k][j], va);
-        }
-        A1[k][k] = 1.0;
-        for (int i = k + 1; i < n; i++) {
-            for (int j = k + 1; j < n; j++) {
-                A1[i][j] = A1[i][j] - A1[k][j] * A1[i][k];
-            }
-            A1[i][k] = 0;
-        }
-    }
-
-    // end time
-    QueryPerformanceCounter((LARGE_INTEGER*)&tail2);
-    cout << "AVX¶şÖØÑ­»·ÏòÁ¿»¯ÔËĞĞÊ±¼äÎª " << (tail2 - head2) * 1000.0 / freq2 << "ms" << endl;
-    time2 += (tail2 - head2) * 1000.0 / freq2;
-
-    /////////////////////////////////////////////////////////////////////ÈıÖØÑ­»·SSEÏòÁ¿»¯//////////////////////////////////////////////////////////////////////////////////////////
-
-    long long head3, tail3, freq3; // timers
-    // similar to CLOCKS_PER_SEC
-    QueryPerformanceFrequency((LARGE_INTEGER*)&freq3);
-    // start time
-    QueryPerformanceCounter((LARGE_INTEGER*)&head3);
-
-    for (int k = 0; k < n; k++) {
-        for (int j = k + 1; j < n; j++) {
-            A2[k][j] = A2[k][j] / A2[k][k];
-        }
-        A2[k][k] = 1.0;
-
-        __m256 vaik, vakj, vaij, vx;
-        for (int i = k + 1; i < n; i++) {
-            vaik = _mm256_set1_ps(A2[i][k]);
-            for (int j = k + 1; j + 8 <= n; j += 8) {
-                vakj = _mm256_load_ps(&A2[k][j]);
-                vaij = _mm256_load_ps(&A2[i][j]);
-                vx = _mm256_mul_ps(vakj, vaik);
-                vaij = _mm256_sub_ps(vaij, vx);
-                _mm256_store_ps(&A2[i][j], vaij);
-            }
-            A2[i][k] = 0;
-        }
-    }
-
-
-    // end time
-    QueryPerformanceCounter((LARGE_INTEGER*)&tail3);
-    cout << "AVXÈıÖØÑ­»·ÏòÁ¿»¯ÔËĞĞÊ±¼äÎª " << (tail3 - head3) * 1000.0 / freq3 << "ms" << endl;
-    time3 += (tail3 - head3) * 1000.0 / freq3;
-
-    /////////////////////////////////////////////////////////////////////ÍêÈ«SEÏòÁ¿»¯//////////////////////////////////////////////////////////////////////////////////////////
-
-    long long head, tail, freq; // timers
-    // similar to CLOCKS_PER_SEC
-    QueryPerformanceFrequency((LARGE_INTEGER*)&freq);
-    // start time
-    QueryPerformanceCounter((LARGE_INTEGER*)&head);
-
-    for (int k = 0; k < n; k++) {
-        float vt = A[k][k];
-        __m256 va;
-        for (int j = k + 1; j + 8 <= n; j += 8) {
-            va = _mm256_load_ps(&A[k][j]);
-            va = _mm256_div_ps(va, _mm256_set1_ps(vt));
-            _mm256_store_ps(&A[k][j], va);
-        }
-        A[k][k] = 1.0;
-
-        __m256 vaik, vakj, vaij, vx;
-        for (int i = k + 1; i < n; i++) {
-            vaik = _mm256_set1_ps(A[i][k]);
-            for (int j = k + 1; j + 8 <= n; j += 8) {
-                vakj = _mm256_load_ps(&A[k][j]);
-                vaij = _mm256_load_ps(&A[i][j]);
-                vx = _mm256_mul_ps(vakj, vaik);
-                vaij = _mm256_sub_ps(vaij, vx);
-                _mm256_store_ps(&A[i][j], vaij);
-            }
-            A[i][k] = 0;
-        }
-    }
-
-
-    // end time
-    QueryPerformanceCounter((LARGE_INTEGER*)&tail);
-    cout << "AVXÍêÈ«ÏòÁ¿»¯ÔËĞĞÊ±¼äÎª " << (tail - head) * 1000.0 / freq << "ms" << endl;
-    time4 += (tail - head) * 1000.0 / freq;
-
-    cout << endl;
-    cout << endl;
-    cout << endl;
-}
 int main() {
+    // åˆ›å»ºç”¨äºåœ¨ GPU ä¸Šæ‰§è¡Œçš„é˜Ÿåˆ—
+    queue q(gpu_selector{});
 
-    for (int i = 1; i <= 20; i++) {
-        test1();
+    // å®šä¹‰çŸ©é˜µ A çš„ç¼“å†²åŒº
+    int A[n][n];
+
+    // åˆå§‹åŒ–çŸ©é˜µ A
+    for (int i = 0; i < n; i++) {
+        A[i][i] = 1.0;
+        for (int j = 0; j < n; j++) {
+            if (j > i)
+                A[i][j] = rand() % 10;
+            else if (j < i)
+                A[i][j] = 0;
+        }
     }
 
-    //cout << "´®ĞĞËã·¨Æ½¾ùÔËĞĞÊ±¼äÎª" << time1/20 << "ms" << endl;
-    //cout << "SSE¶şÖØÑ­»·ÏòÁ¿»¯Æ½¾ùÔËĞĞÊ±¼äÎª " << time2/20 << "ms" << endl;
-    //cout << "SSEÈıÖØÑ­»·ÏòÁ¿»¯Æ½¾ùÔËĞĞÊ±¼äÎª " << time3/20 << "ms" << endl;
-    //cout << "SSEÍêÈ«ÏòÁ¿»¯Æ½¾ùÔËĞĞÊ±¼äÎª " << time4/20<<"ms" << endl;
+    // åˆ›å»ºç”¨äºåœ¨è®¾å¤‡ä¸Šå­˜å‚¨çŸ©é˜µ A çš„ç¼“å†²åŒº
+    buffer<int, 2> bufA(reinterpret_cast<int*>(A), range<2>(n, n));
 
+    // å¯åŠ¨è®¡æ—¶å™¨
+    auto start = std::chrono::steady_clock::now();
 
+    // æäº¤ä¸€ä¸ªå‘½ä»¤ç»„ï¼Œåœ¨è®¾å¤‡ä¸Šæ‰§è¡Œ
+    q.submit([&](handler& h) {
+        // è®¿é—®ç¼“å†²åŒº
+        auto accA = bufA.get_access<access::mode::read_write>(h);
 
-    cout << "´®ĞĞËã·¨Æ½¾ùÔËĞĞÊ±¼äÎª" << time1 / 20 << "ms" << endl;
-    cout << "AVX¶şÖØÑ­»·ÏòÁ¿»¯Æ½¾ùÔËĞĞÊ±¼äÎª " << time2 / 20 << "ms" << endl;
-    cout << "AVXÈıÖØÑ­»·ÏòÁ¿»¯Æ½¾ùÔËĞĞÊ±¼äÎª " << time3 / 20 << "ms" << endl;
-    cout << "AVXÍêÈ«ÏòÁ¿»¯Æ½¾ùÔËĞĞÊ±¼äÎª " << time4 / 20 << "ms" << endl;
+        // åœ¨è®¾å¤‡ä¸Šæ‰§è¡ŒçŸ©é˜µæ“ä½œ
+        h.parallel_for(range<1>(n), [=](id<1> idx) {
+            int k = idx[0];
+
+            // å¯¹ç¬¬ k è¡Œè¿›è¡Œå½’ä¸€åŒ–
+            for (int j = k + 1; j < n; j++) {
+                accA[k][j] = accA[k][j] / accA[k][k];
+            }
+            accA[k][k] = 1.0;
+
+            // æ‰§è¡Œé«˜æ–¯æ¶ˆå…ƒ
+            for (int i = k + 1; i < n; i++) {
+                for (int j = k + 1; j < n; j++) {
+                    accA[i][j] = accA[i][j] - accA[k][j] * accA[i][k];
+                }
+                accA[i][k] = 0;
+            }
+            });
+        });
+
+    // å°†ä¿®æ”¹åçš„çŸ©é˜µ A è¯»å›ä¸»æœº
+    q.wait();
+    bufA.get_access<access::mode::read>();
+
+    // åœæ­¢è®¡æ—¶å™¨å¹¶è®¡ç®—ç»è¿‡çš„æ—¶é—´
+    auto end = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+    // æ‰“å°ç»“æœçŸ©é˜µ
+    std::cout << "ç»“æœçŸ©é˜µ:\n";
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            std::cout << A[i][j] << " ";
+        }
+        std::cout << "\n";
+    }
+
+    // æ‰“å°ç»è¿‡çš„æ—¶é—´
+    std::cout << "ç»è¿‡æ—¶é—´: " << duration << " å¾®ç§’\n";
+
     return 0;
 }
+
+
+
+
